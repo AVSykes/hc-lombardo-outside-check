@@ -3,7 +3,7 @@
 name: Outside check
 on:
   schedule:
-    - cron: '7,37 * * * *'
+    - cron: '3,33 * * * *'
   workflow_dispatch:
     inputs:
       base_url:
