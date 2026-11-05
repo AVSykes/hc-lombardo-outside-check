@@ -1,0 +1,34 @@
+# GitHub turns off scheduled workflows in a public repository after 60 days with
+# no activity. This makes that impossible two ways: a dated commit on the default
+# branch every week, and it switches the check back on if it was ever off. Weekly,
+# not monthly, so one or two missed runs still leave weeks of room.
+name: Keepalive
+on:
+  schedule:
+    - cron: '13 16 * * 1'
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: write
+jobs:
+  keepalive:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Switch both workflows on
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow enable outside-check.yml --repo "$GITHUB_REPOSITORY"
+          gh workflow enable keepalive.yml --repo "$GITHUB_REPOSITORY"
+      - name: Commit the date
+        run: |
+          date -u +%Y-%m-%dT%H:%M:%SZ > keepalive.txt
+          git config user.name 'outside-check'
+          git config user.email 'outside-check@users.noreply.github.com'
+          git add keepalive.txt
+          git commit -q -m 'keepalive'
+          git push -q

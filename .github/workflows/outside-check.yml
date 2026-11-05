@@ -1,0 +1,65 @@
+# Checks the site from outside AWS every 30 minutes. See outside_check.py.
+# State lives on the monitor-state branch, so "since when" survives between runs.
+name: Outside check
+on:
+  schedule:
+    - cron: '7,37 * * * *'
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'Test only: check this address instead, with its own state file'
+        required: false
+        default: ''
+concurrency:
+  group: outside-check
+  cancel-in-progress: false
+permissions:
+  contents: write
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Read the state
+        run: |
+          mkdir -p .state
+          if git fetch -q --depth=1 origin monitor-state 2>/dev/null; then
+            git archive FETCH_HEAD | tar -x -C .state
+          fi
+      - name: Check the site
+        env:
+          BASE_URL_INPUT: ${{ inputs.base_url }}
+          MONITOR_LOGIN: ${{ secrets.MONITOR_LOGIN }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          MAIL_FROM: ${{ secrets.MAIL_FROM }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+          PUSHOVER_TOKEN: ${{ secrets.PUSHOVER_TOKEN }}
+          PUSHOVER_USER: ${{ secrets.PUSHOVER_USER }}
+          REPAIR_AWS_KEY_ID: ${{ secrets.REPAIR_AWS_KEY_ID }}
+          REPAIR_AWS_SECRET: ${{ secrets.REPAIR_AWS_SECRET }}
+          REPAIR_INSTANCE: ${{ secrets.REPAIR_INSTANCE }}
+          REPAIR_REGION: ${{ secrets.REPAIR_REGION }}
+        run: |
+          if [ -n "$BASE_URL_INPUT" ]; then
+            python3 outside_check.py --state .state/state-test.json --base-url "$BASE_URL_INPUT" --no-repair
+          else
+            python3 outside_check.py --state .state/state.json
+          fi
+      - name: Save the state
+        if: always()
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          cd .state
+          git init -q -b monitor-state
+          git config user.name 'outside-check'
+          git config user.email 'outside-check@users.noreply.github.com'
+          git add -A
+          git commit -q -m 'state' || exit 0
+          git push -q -f "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" monitor-state
